@@ -80,10 +80,7 @@ impl Vault {
     }
     
     pub fn withdraw(&mut self, amount_out: U256) -> Result<(), Erc20Error> {
-        /* if msg::sender() != self.metric_address.get() {
-            return Err(Erc20Error::NotAuthorized);
-        }   
-         */
+      
 
 
         // Calculate the % of the supply that the user has
@@ -119,6 +116,7 @@ impl Vault {
                 }
             };
             
+
             // Calculate the amount to swap based on user's percentage
             let amount_to_swap = token_balance * _percentage;
             
@@ -188,6 +186,11 @@ impl Vault {
     }   
 
     pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>, amount_in: Vec<U256>) {
+          /* if msg::sender() != self.metric_address.get() {
+            return Err(Erc20Error::NotAuthorized);
+        }   
+         */
+        
         // Get the USDC address
         let usdc_address = self.usdc_address.get();
         let router_address = self.router_address.get();
