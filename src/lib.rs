@@ -15,6 +15,7 @@ use stylus_sdk::{
     evm,
     prelude::*,
 };
+use alloy_sol_types::sol;
 
 /// Immutable definitions
 struct VaultTokenParams;
@@ -24,18 +25,16 @@ impl Erc20Params for VaultTokenParams {
     const DECIMALS: u8 = 18;
 }
 
-// Define Solidity struct for Uniswap params using alloy_sol_types
-use alloy_sol_types::sol;
 
 sol! {
-    struct ExactInputParams {
-        bytes path;
-        address recipient;
-        uint256 deadline;
-        uint256 amountIn;
-        uint256 amountOutMinimum;
-    }
+    error NotAuthorized();
 }
+#[derive(SolidityError)]
+
+pub enum VaultErrors {
+   NotAuthorized(NotAuthorized),
+}
+
 
 sol_storage! {
     #[entrypoint]
@@ -55,11 +54,10 @@ sol_interface! {
     interface IERC20 {
         function balanceOf(address account) external view returns (uint256);
         function transfer(address recipient, uint256 amount) external returns (bool);
-        function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+        function transferFrom(address sender, address recipient, uint256 amou2nt) external returns (bool);
         function approve(address spender, uint256 amount) external returns (bool);
         function allowance(address owner, address spender) external view returns (uint256);
     }
-
 }
 
 #[public]
@@ -82,6 +80,12 @@ impl Vault {
     }
     
     pub fn withdraw(&mut self, amount_out: U256) -> Result<(), Erc20Error> {
+        /* if msg::sender() != self.metric_address.get() {
+            return Err(Erc20Error::NotAuthorized);
+        }   
+         */
+
+
         // Calculate the % of the supply that the user has
         let supply = self.erc20.total_supply();
         let _percentage = amount_out / supply;
@@ -183,7 +187,7 @@ impl Vault {
         Ok(result)
     }   
 
-    pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>) {
+    pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>, amount_in: Vec<U256>) {
         // Get the USDC address
         let usdc_address = self.usdc_address.get();
         let router_address = self.router_address.get();
@@ -200,7 +204,7 @@ impl Vault {
                 let token_contract = IERC20::new(token);
                 
                 // Create a new config for each call
-                let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                let config = Call::new_in(self).gas(evm::gas_left());
                 let token_balance = match token_contract.balance_of(config, contract::address()) {
                     Ok(balance) => balance,
                     Err(_) => continue,
@@ -208,8 +212,8 @@ impl Vault {
                 
                 if token_balance > U256::ZERO {
                     // Create a new config for the approve call
-                    let config = Call::new_in(self).gas(evm::gas_left() / 2);
-                    let _ = token_contract.approve(config, router_address, token_balance);
+                    let config = Call::new_in(self).gas(evm::gas_left());
+                    let _ = token_contract.approve(config, router_address, amount_in[i]);
                     
                     // Swap token -> USDC
                     let _ = self._swap_tokens(token, usdc_address, 3000, token_balance, U256::ZERO);
@@ -220,7 +224,7 @@ impl Vault {
                 let usdc_contract = IERC20::new(usdc_address);
                 
                 // Create a new config for balance check
-                let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                let config = Call::new_in(self).gas(evm::gas_left());
                 let usdc_balance = match usdc_contract.balance_of(config, contract::address()) {
                     Ok(balance) => balance,
                     Err(_) => continue,
@@ -228,16 +232,16 @@ impl Vault {
                 
                 if usdc_balance > U256::ZERO {
                     // Create a new config for approve
-                    let config = Call::new_in(self).gas(evm::gas_left() / 2);
-                    let _ = usdc_contract.approve(config, router_address, usdc_balance);
+                    let config = Call::new_in(self).gas(evm::gas_left());
+                    let _ = usdc_contract.approve(config, router_address, amount_in[i]);
                     
-                    // Swap USDC -> token
-                    let _ = self._swap_tokens(usdc_address, token, 3000, usdc_balance, U256::ZERO);
+                    // Use a fixed amount for testing
+                    let amount_to_swap = U256::from(100); // Just use 100 wei for testing
+                    let _ = self._swap_tokens(usdc_address, token, 3000, amount_to_swap, U256::ZERO);
                 }
             }
         }
     }
-
 }
 
 // internal functions   
@@ -262,29 +266,15 @@ impl Vault {
         token_out: Address,
         fee: u32,
         recipient: Address, 
-        deadline: U256, 
         amount_in: U256, 
         amount_out_minimum: U256,
         sqrt_price_limit_x96: U256
     ) -> Vec<u8> {
-        // Function signature for exactInputSingle is 0x414bf389
-        let mut calldata = vec![0x41, 0x4b, 0xf3, 0x89];
+        // Function signature for exactInputSingle (0x04e45aaf)
+        let mut calldata = vec![0x04, 0xe4, 0x5a, 0xaf];
         
-        // Encode the ExactInputSingleParams struct
-        // First encode the offset to the struct data (32 bytes for standard dynamic type offset)
-        calldata.extend_from_slice(&U256::from(32).to_be_bytes::<32>());
-        
-        // Now encode the actual struct members according to the struct definition:
-        // struct ExactInputSingleParams {
-        //     address tokenIn;
-        //     address tokenOut;
-        //     uint24 fee;
-        //     address recipient;
-        //     uint256 deadline;
-        //     uint256 amountIn;
-        //     uint256 amountOutMinimum;
-        //     uint160 sqrtPriceLimitX96;
-        // }
+        // For a tuple parameter, we only need the function selector followed by the tuple values
+        // No need for an offset since it's a direct tuple, not a dynamic type
         
         // First member: tokenIn (address)
         let mut token_in_bytes = [0u8; 32];
@@ -308,16 +298,13 @@ impl Vault {
         recipient_bytes[12..].copy_from_slice(recipient.as_slice());
         calldata.extend_from_slice(&recipient_bytes);
         
-        // Fifth member: deadline (uint256)
-        calldata.extend_from_slice(&deadline.to_be_bytes::<32>());
-        
-        // Sixth member: amountIn (uint256)
+        // Fifth member: amountIn (uint256)
         calldata.extend_from_slice(&amount_in.to_be_bytes::<32>());
         
-        // Seventh member: amountOutMinimum (uint256)
+        // Sixth member: amountOutMinimum (uint256)
         calldata.extend_from_slice(&amount_out_minimum.to_be_bytes::<32>());
         
-        // Eighth member: sqrtPriceLimitX96 (uint160) - padded to 32 bytes
+        // Seventh member: sqrtPriceLimitX96 (uint160) - padded to 32 bytes
         calldata.extend_from_slice(&sqrt_price_limit_x96.to_be_bytes::<32>());
         
         calldata
@@ -348,7 +335,6 @@ impl Vault {
         token_out: Address,
         fee: u32,
         recipient: Address, 
-        deadline: U256, 
         amount_in: U256, 
         amount_out_minimum: U256,
         sqrt_price_limit_x96: U256
@@ -362,7 +348,6 @@ impl Vault {
             token_out,
             fee,
             recipient,
-            deadline,
             amount_in,
             amount_out_minimum,
             sqrt_price_limit_x96
@@ -391,8 +376,6 @@ impl Vault {
         amount_in: U256,
         amount_out_minimum: U256
     ) -> Result<U256, Vec<u8>> {
-        let deadline = U256::from(block::timestamp()) + U256::from(180);
-        
         // Set recipient to this contract
         let recipient = contract::address();
         
@@ -405,7 +388,6 @@ impl Vault {
             token_out,
             fee,
             recipient,
-            deadline,
             amount_in,
             amount_out_minimum,
             sqrt_price_limit_x96

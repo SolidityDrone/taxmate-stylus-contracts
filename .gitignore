@@ -1,3 +1,4 @@
 /target
 .env
 notes.txt
+deploy_and_run.sh
