@@ -135,15 +135,115 @@ impl Vault {
         
         Ok(())
     }
+
+    pub fn initialize(&mut self, metric_address: Address, usdc_address: Address, router_address: Address, tokens_held: Vec<Address>) {
+        self.metric_address.set(metric_address);
+        self.usdc_address.set(usdc_address);
+        self.router_address.set(router_address);
+        
+        // Clear any existing tokens and add new ones
+        let length = self.tokens_held.len();
+        for _ in 0..length {
+            self.tokens_held.pop();
+        }
+        
+        // Add each token from the input vector
+        for token in tokens_held {
+            self.tokens_held.push(token);
+        }
+    }
+
+    
+    pub fn total_assets(&self) -> Result<U256, Vec<u8>> {
+        Ok(self.erc20.total_supply.get())
+    }
+
+    pub fn usdc_address(&self) -> Result<Address, Vec<u8>> {
+        Ok(self.usdc_address.get())
+    }
+
+    pub fn router_address(&self) -> Result<Address, Vec<u8>> {
+        Ok(self.router_address.get())
+    }   
+
+    pub fn metric_address(&self) -> Result<Address, Vec<u8>> {
+        Ok(self.metric_address.get())
+    }   
+
+    pub fn tokens_held(&self) -> Result<Vec<Address>, Vec<u8>> {
+        let mut result = Vec::new();
+        let length = self.tokens_held.len();
+        
+        for i in 0..length {
+            if let Some(token) = self.tokens_held.get(i) {
+                result.push(token);
+            }
+        }
+        
+        Ok(result)
+    }   
+
+    pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>) {
+        // Get the USDC address
+        let usdc_address = self.usdc_address.get();
+        let router_address = self.router_address.get();
+
+        // Make sure the arrays have the same length
+        let max_len = tokens_to_swap.len().min(zero_to_one.len());
+        
+        for i in 0..max_len {
+            let token = tokens_to_swap[i];
+            let is_zero_to_one = zero_to_one[i];
+            
+            if is_zero_to_one {
+                // Swapping token -> USDC
+                let token_contract = IERC20::new(token);
+                
+                // Create a new config for each call
+                let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                let token_balance = match token_contract.balance_of(config, contract::address()) {
+                    Ok(balance) => balance,
+                    Err(_) => continue,
+                };
+                
+                if token_balance > U256::ZERO {
+                    // Create a new config for the approve call
+                    let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                    let _ = token_contract.approve(config, router_address, token_balance);
+                    
+                    // Swap token -> USDC
+                    let _ = self._swap_tokens(token, usdc_address, 3000, token_balance, U256::ZERO);
+                }
+            } else {
+                // Swapping USDC -> token
+                // Get USDC contract
+                let usdc_contract = IERC20::new(usdc_address);
+                
+                // Create a new config for balance check
+                let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                let usdc_balance = match usdc_contract.balance_of(config, contract::address()) {
+                    Ok(balance) => balance,
+                    Err(_) => continue,
+                };
+                
+                if usdc_balance > U256::ZERO {
+                    // Create a new config for approve
+                    let config = Call::new_in(self).gas(evm::gas_left() / 2);
+                    let _ = usdc_contract.approve(config, router_address, usdc_balance);
+                    
+                    // Swap USDC -> token
+                    let _ = self._swap_tokens(usdc_address, token, 3000, usdc_balance, U256::ZERO);
+                }
+            }
+        }
+    }
+
 }
 
 // internal functions   
 impl Vault {
-    pub fn _mint(&mut self, value: U256) -> Result<(), Erc20Error> {
-        self.erc20.mint(msg::sender(), value)?;
-        Ok(())
-    }
 
+   
     /// Mints tokens to another address
     pub fn _mint_to(&mut self, to: Address, value: U256) -> Result<(), Erc20Error> {
         self.erc20.mint(to, value)?;
