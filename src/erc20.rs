@@ -51,8 +51,7 @@ sol! {
 /// Represents the ways methods may fail.
 #[derive(SolidityError)]
 pub enum Erc20Error {
-    InsufficientBalance(InsufficientBalance),
-    InsufficientAllowance(InsufficientAllowance),
+    InsufficientBalance(InsufficientBalance)
 }
 
 // These methods aren't exposed to other contracts
@@ -180,12 +179,7 @@ impl<T: Erc20Params> Erc20<T> {
         let mut allowance = sender_allowances.setter(msg::sender());
         let old_allowance = allowance.get();
         if old_allowance < value {
-            return Err(Erc20Error::InsufficientAllowance(InsufficientAllowance {
-                owner: from,
-                spender: msg::sender(),
-                have: old_allowance,
-                want: value,
-            }));
+           panic!()
         }
 
         // Decreases allowance
