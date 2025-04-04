@@ -165,19 +165,21 @@ impl Vault {
             Ok(self.metric_address.get())
         }   
     */
-    pub fn vault_balances(&mut self) -> Result<Vec<U256>, Vec<u8>> {
+    pub fn vault_data(&mut self) -> Result<(Vec<Address>, Vec<U256>), Vec<u8>> {
         let length = self.enabled_tokens.len();
+        let mut tokens = Vec::with_capacity(length);
         let mut balances = Vec::with_capacity(length);
         
         for i in 0..length {
             if let Some(token) = self.enabled_tokens.get(i) {
+                tokens.push(token);
+                
                 let config = Call::new_in(self).gas(evm::gas_left() / 2);
-                // One-liner to get balance or default to zero
                 let balance = IERC20::new(token).balance_of(config, contract::address()).unwrap_or(U256::ZERO);
                 balances.push(balance);
             }
         }
-        Ok(balances)
+        Ok((tokens, balances))
     }
 
     pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>, amount_in: Vec<U256>) {

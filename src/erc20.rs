@@ -44,14 +44,14 @@ sol! {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
-    error InsufficientBalance(address from, uint256 have, uint256 want);
-    error InsufficientAllowance(address owner, address spender, uint256 have, uint256 want);
+
+
 }
 
 /// Represents the ways methods may fail.
 #[derive(SolidityError)]
 pub enum Erc20Error {
-    InsufficientBalance(InsufficientBalance)
+   
 }
 
 // These methods aren't exposed to other contracts
@@ -64,13 +64,7 @@ impl<T: Erc20Params> Erc20<T> {
         // Decreasing sender balance
         let mut sender_balance = self.balances.setter(from);
         let old_sender_balance = sender_balance.get();
-        if old_sender_balance < value {
-            return Err(Erc20Error::InsufficientBalance(InsufficientBalance {
-                from,
-                have: old_sender_balance,
-                want: value,
-            }));
-        }
+
         sender_balance.set(old_sender_balance - value);
 
         // Increasing receiver balance
@@ -108,13 +102,7 @@ impl<T: Erc20Params> Erc20<T> {
         // Decreasing balance
         let mut balance = self.balances.setter(address);
         let old_balance = balance.get();
-        if old_balance < value {
-            return Err(Erc20Error::InsufficientBalance(InsufficientBalance {
-                from: address,
-                have: old_balance,
-                want: value,
-            }));
-        }
+       
         balance.set(old_balance - value);
 
         // Decreasing the total supply
