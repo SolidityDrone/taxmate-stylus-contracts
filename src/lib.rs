@@ -10,7 +10,6 @@ use alloy_primitives::{Address, U256};
 use stylus_sdk::{
     call::{Call, call},
     msg, 
-    block,
     contract,
     evm,
     prelude::*,
@@ -20,7 +19,7 @@ use alloy_sol_types::sol;
 /// Immutable definitions
 struct VaultTokenParams;
 impl Erc20Params for VaultTokenParams {
-    const NAME: &'static str = "Erc20";
+    const NAME: &'static str = "Metric";
     const SYMBOL: &'static str = "Metric";
     const DECIMALS: u8 = 18;
 }
@@ -43,7 +42,7 @@ sol_storage! {
         
         Erc20<VaultTokenParams> erc20;
         address metric_address;
-        address[] tokens_held;
+        address[] enabled_tokens;
         address usdc_address;
         address router_address;
     }
@@ -80,21 +79,20 @@ impl Vault {
     }
     
     pub fn withdraw(&mut self, amount_out: U256) -> Result<(), Erc20Error> {
-      
-
-
-        // Calculate the % of the supply that the user has
+        // Calculate the % of the supply that the user has with scaling to maintain precision
         let supply = self.erc20.total_supply();
-        let _percentage = amount_out / supply;
+        // Use a scaling factor of 10^18 to handle decimal percentages
+        let scaling_factor = U256::from(10).pow(U256::from(18));
+        let percentage = (amount_out * scaling_factor) / supply;
         
         let usdc_address = self.usdc_address.get();
         let router_address = self.router_address.get();
         
-        // Get the tokens_held length and iterate manually
+        // Get the enabled_tokens length and iterate manually
         let mut i = 0;
         loop {
             // Try to get the token at the current index
-            let token_opt = self.tokens_held.get(i);
+            let token_opt = self.enabled_tokens.get(i);
             
             // If we get None, we've reached the end of the array
             if token_opt.is_none() {
@@ -107,26 +105,33 @@ impl Vault {
             let token_contract = IERC20::new(token);
             let config = Call::new_in(self).gas(evm::gas_left() / 2);
             
-            // Try to get the token balance, continue if it fails
+            // Try to get the token balance, handle errors properly
             let token_balance = match token_contract.balance_of(config, contract::address()) {
                 Ok(balance) => balance,
                 Err(_) => {
+                    // Skip this token if balance check fails, continue to next token
                     i += 1;
                     continue;
                 }
             };
             
-
-            // Calculate the amount to swap based on user's percentage
-            let amount_to_swap = token_balance * _percentage;
+            // Calculate the amount to transfer based on user's percentage
+            // Divide by scaling factor to get actual amount
+            let share_total = (token_balance * percentage) / scaling_factor;
             
-            if amount_to_swap > U256::ZERO {
-                // Now create the config after getting the router address
-                let config = Call::new_in(self).gas(evm::gas_left() / 2);
-                let _ = token_contract.approve(config, router_address, amount_to_swap);
-                
-                // Perform the swap - ignore errors and continue
-                let _ = self._swap_tokens(token, usdc_address, 3000, amount_to_swap, U256::ZERO);
+            if share_total > U256::ZERO {
+                if token != usdc_address {
+                    // For non-USDC tokens, approve and swap to USDC
+                    let approve_config = Call::new_in(self).gas(evm::gas_left() / 2);
+                    let _ = token_contract.approve(approve_config, router_address, share_total);
+                    
+                    // Perform the swap - ignore errors and continue
+                    let _ = self._swap_tokens(token, usdc_address, 3000, share_total, U256::ZERO);
+                } else {
+                    // For USDC, transfer directly to user
+                    let transfer_config = Call::new_in(self).gas(evm::gas_left() / 2);
+                    let _ = token_contract.transfer(transfer_config, msg::sender(), share_total);
+                }
             }
             
             i += 1;
@@ -138,20 +143,20 @@ impl Vault {
         Ok(())
     }
 
-    pub fn initialize(&mut self, metric_address: Address, usdc_address: Address, router_address: Address, tokens_held: Vec<Address>) {
+    pub fn initialize(&mut self, metric_address: Address, usdc_address: Address, router_address: Address, enabled_tokens: Vec<Address>) {
         self.metric_address.set(metric_address);
         self.usdc_address.set(usdc_address);
         self.router_address.set(router_address);
         
         // Clear any existing tokens and add new ones
-        let length = self.tokens_held.len();
+        let length = self.enabled_tokens.len();
         for _ in 0..length {
-            self.tokens_held.pop();
+            self.enabled_tokens.pop();
         }
         
         // Add each token from the input vector
-        for token in tokens_held {
-            self.tokens_held.push(token);
+        for token in enabled_tokens {
+            self.enabled_tokens.push(token);
         }
     }
 
@@ -171,20 +176,40 @@ impl Vault {
     pub fn metric_address(&self) -> Result<Address, Vec<u8>> {
         Ok(self.metric_address.get())
     }   
-
-    pub fn tokens_held(&self) -> Result<Vec<Address>, Vec<u8>> {
-        let mut result = Vec::new();
-        let length = self.tokens_held.len();
+    
+  /*   pub fn get_balance(&self, token: Address) -> Result<U256, Vec<u8>> {
+        // Get the token contract
+        let token_contract = IERC20::new(token);
         
+        // Create config with proper mutability
+        let config = Call::new();
+        
+        // Get balance with proper error handling
+        match token_contract.balance_of(config, contract::address()) {
+            Ok(balance) => Ok(balance),
+            Err(_) => Err(vec![0]) // Return a simple error vector instead of trying to convert the Error
+        }
+    } */
+/*     
+    pub fn enabled_tokens_length(&self) -> Result<U256, Vec<u8>> {
+        let length = self.enabled_tokens.len();
+        Ok(U256::from(length as u64))
+    } */
+
+   /*  pub fn enabled_tokens(&self) -> Result<Vec<Address>, Vec<u8>> {
+        let mut result = Vec::new();
+        let length = self.enabled_tokens.len();
+        
+        // Safely collect tokens
         for i in 0..length {
-            if let Some(token) = self.tokens_held.get(i) {
+            if let Some(token) = self.enabled_tokens.get(i) {
                 result.push(token);
             }
         }
         
         Ok(result)
-    }   
-
+    }
+ */
     pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>, amount_in: Vec<U256>) {
           /* if msg::sender() != self.metric_address.get() {
             return Err(Erc20Error::NotAuthorized);
@@ -239,8 +264,8 @@ impl Vault {
                     let _ = usdc_contract.approve(config, router_address, amount_in[i]);
                     
                     // Use a fixed amount for testing
-                    let amount_to_swap = U256::from(100); // Just use 100 wei for testing
-                    let _ = self._swap_tokens(usdc_address, token, 3000, amount_to_swap, U256::ZERO);
+                    let shareTotal = U256::from(100); // Just use 100 wei for testing
+                    let _ = self._swap_tokens(usdc_address, token, 3000, shareTotal, U256::ZERO);
                 }
             }
         }
