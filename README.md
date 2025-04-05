@@ -1,8 +1,3 @@
-# TaxMate: Automated Portfolio Management Vault
-
-TaxMate is a smart contract vault built on Arbitrum Stylus using Rust. It allows users to deposit USDC tokens and rebalance their portfolio across multiple tokens with automated swap functionality through UniswapV3.
-
-## Vault Smart Contract Overview
 
 The `lib.rs` file implements a DeFi vault with the following key features:
 
@@ -58,24 +53,3 @@ EOF
 
 # Make the script executable
 chmod +x deploy_fixed.sh
-```
-
-To deploy:
-
-1. Create a text file named `private-key.txt` containing your private key
-2. Run the deployment script: `./deploy_fixed.sh`
-3. After deployment, initialize the contract with:
-   ```
-   cast send --rpc-url 'https://sepolia-rollup.arbitrum.io/rpc' \
-     --private-key $(cat private-key.txt) \
-     YOUR_CONTRACT_ADDRESS "initialize(address,address,address,address[])" \
-     METRIC_ADDRESS USDC_ADDRESS ROUTER_ADDRESS '[TOKEN1, TOKEN2, TOKEN3]'
-   ```
-
-![Image](./header.png)
-
-# Stylus Hello World
-
-Project starter template for writing Arbitrum Stylus programs in Rust using the [stylus-sdk](https://github.com/OffchainLabs/stylus-sdk-rs). It includes a Rust implementation of a basic counter Ethereum smart contract:
-
-// ... existing code ...
