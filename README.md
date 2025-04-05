@@ -22,34 +22,21 @@ The smart contract uses the Stylus SDK to compile Rust to WebAssembly, which is 
 You can deploy the TaxMate vault using the provided deployment script:
 
 ```bash
-# Create the deployment script
-cat > deploy_fixed.sh << 'EOF'
-#!/bin/bash
-
-# Check if Rust and required tools are installed
-if ! command -v cargo &> /dev/null; then
-    echo "Rust is not installed. Please install it first."
-    exit 1
-fi
-
-# Install Stylus tools if not already installed
-cargo install --force cargo-stylus cargo-stylus-check
-
-# Add wasm32 target
-rustup target add wasm32-unknown-unknown
-
-# Verify the contract compiles properly
-echo "Checking contract compilation..."
-cargo stylus check
-
-# Deploy the contract
-echo "Deploying contract..."
 cargo stylus deploy \
   --endpoint='https://sepolia-rollup.arbitrum.io/rpc' \
-  --private-key-path=./private-key.txt
+  --private-key=<PRIVATE_KEY>
+```
 
-echo "Contract deployed successfully!"
-EOF
+then you can update your ```.env``` variables and run:
 
-# Make the script executable
-chmod +x deploy_fixed.sh
+```bash
+./deploy.sh
+```
+
+make sure you give chmod -x ./deploy.sh permission to execute that file. 
+This will
+    1. Initialize
+    2. Approve 
+    3. Deposit
+    4. trigger rebalance
+    5. withdraw position
