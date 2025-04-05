@@ -39,30 +39,6 @@ show_loading_bar() {
 echo "Starting deployment and operations..."
 echo "======================================"
 
-# Check if Rust and required tools are installed
-if ! command -v cargo &> /dev/null; then
-    echo "Rust is not installed. Please install it first."
-    exit 1
-fi
-
-# Install Stylus tools if not already installed
-cargo install --force cargo-stylus cargo-stylus-check
-
-# Add wasm32 target
-rustup target add wasm32-unknown-unknown
-
-# Verify the contract compiles properly
-echo "Checking contract compilation..."
-cargo stylus check
-
-# Deploy the contract
-echo "Deploying contract..."
-cargo stylus deploy \
-  --endpoint='https://sepolia-rollup.arbitrum.io/rpc' \
-  --private-key-path=./private-key.txt
-
-echo "Contract deployed successfully!"
-
 # 1. Initialize the contract - using exactly the command from notes.txt
 echo "1. Initializing contract..."
 cast send --rpc-url "$RPC_URL" --private-key "$PRIVATE_KEY" "$CONTRACT_ADDRESS" "initialize(address,address,address,address[])" "$USDC_ADDRESS" "$USDC_ADDRESS" "$ROUTER_ADDRESS" "[0x980B62Da83eFf3D4576C647993b0c1D7faf17c73, 0xfEDD4b1fFe0deeF84F22E42aC94904142Ba99807, 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d]"
