@@ -14,7 +14,7 @@ use stylus_sdk::{
     evm,
     prelude::*,
 };
-
+use alloy_sol_types::sol;
 
 /// Immutable definitions
 struct VaultTokenParams;
@@ -44,6 +44,7 @@ sol_interface! {
         function transfer(address recipient, uint256 amount) external returns (bool);
         function transferFrom(address sender, address recipient, uint256 amou2nt) external returns (bool);
         function approve(address spender, uint256 amount) external returns (bool);
+        function allowance(address owner, address spender) external view returns (uint256);
     }
 }
 
@@ -165,24 +166,69 @@ impl Vault {
             Ok(self.metric_address.get())
         }   
     */
-    pub fn vault_data(&mut self) -> Result<(Vec<Address>, Vec<U256>), Vec<u8>> {
-        let length = self.enabled_tokens.len();
-        let mut tokens = Vec::with_capacity(length);
-        let mut balances = Vec::with_capacity(length);
+    pub fn vault_balances(&mut self) -> Result<Vec<U256>, Vec<u8>> {
+        let mut balances = Vec::new();
         
+        // Get the length of enabled_tokens
+        let length = self.enabled_tokens.len();
+        
+        // Iterate through indices manually
         for i in 0..length {
+            // Safe unwrap since we're checking within bounds
             if let Some(token) = self.enabled_tokens.get(i) {
-                tokens.push(token);
-                
+                let token_contract = IERC20::new(token);
                 let config = Call::new_in(self).gas(evm::gas_left() / 2);
-                let balance = IERC20::new(token).balance_of(config, contract::address()).unwrap_or(U256::ZERO);
-                balances.push(balance);
+                
+                // Handle the Result returned by balance_of
+                match token_contract.balance_of(config, contract::address()) {
+                    Ok(balance) => balances.push(balance),
+                    Err(_) => balances.push(U256::ZERO)  // Push zero if there's an error
+                }
             }
         }
-        Ok((tokens, balances))
+        Ok(balances)
     }
 
+
+    
+  /*   pub fn get_balance(&self, token: Address) -> Result<U256, Vec<u8>> {
+        // Get the token contract
+        let token_contract = IERC20::new(token);
+        
+        // Create config with proper mutability
+        let config = Call::new();
+        
+        // Get balance with proper error handling
+        match token_contract.balance_of(config, contract::address()) {
+            Ok(balance) => Ok(balance),
+            Err(_) => Err(vec![0]) // Return a simple error vector instead of trying to convert the Error
+        }
+    } */
+/*     
+    pub fn enabled_tokens_length(&self) -> Result<U256, Vec<u8>> {
+        let length = self.enabled_tokens.len();
+        Ok(U256::from(length as u64))
+    } */
+
+   /*  pub fn enabled_tokens(&self) -> Result<Vec<Address>, Vec<u8>> {
+        let mut result = Vec::new();
+        let length = self.enabled_tokens.len();
+        
+        // Safely collect tokens
+        for i in 0..length {
+            if let Some(token) = self.enabled_tokens.get(i) {
+                result.push(token);
+            }
+        }
+        
+        Ok(result)
+    }
+ */
     pub fn rebalance(&mut self, tokens_to_swap: Vec<Address>, zero_to_one: Vec<bool>, amount_in: Vec<U256>) {
+          /* if msg::sender() != self.metric_address.get() {
+            return Err(Erc20Error::NotAuthorized);
+        }   
+         */
         let usdc_address = self.usdc_address.get();
         let router_address = self.router_address.get();
         let max_len = tokens_to_swap.len().min(zero_to_one.len());
@@ -191,35 +237,45 @@ impl Vault {
             let token = tokens_to_swap[i];
             let is_zero_to_one = zero_to_one[i];
             
-            // Get source token and target token
-            let (source, target) = if is_zero_to_one {
-                (token, usdc_address)
-            } else {
-                (usdc_address, token)
-            };
-            
-            // Check balance of source token
-            let source_contract = IERC20::new(source);
-            let config = Call::new_in(self).gas(evm::gas_left());
-            let source_balance = match source_contract.balance_of(config, contract::address()) {
-                Ok(balance) => balance,
-                Err(_) => continue,
-            };
-            
-            if source_balance > U256::ZERO {
-                // Approve tokens
-                let config = Call::new_in(self).gas(evm::gas_left());
-                let _ = source_contract.approve(config, router_address, amount_in[i]);
+            if is_zero_to_one {
+                // Swapping token -> USDC
+                let token_contract = IERC20::new(token);
                 
-                // Set amount to swap
-                let swap_amount = if is_zero_to_one {
-                    source_balance
-                } else {
-                    U256::from(100) // 100 wei for testing
+                // Create a new config for each call
+                let config = Call::new_in(self).gas(evm::gas_left());
+                let token_balance = match token_contract.balance_of(config, contract::address()) {
+                    Ok(balance) => balance,
+                    Err(_) => continue,
                 };
                 
-                // Perform swap
-                let _ = self._swap_tokens(source, target, 3000, swap_amount, U256::ZERO);
+                if token_balance > U256::ZERO {
+                    // Create a new config for the approve call
+                    let config = Call::new_in(self).gas(evm::gas_left());
+                    let _ = token_contract.approve(config, router_address, amount_in[i]);
+                    
+                    // Swap token -> USDC
+                    let _ = self._swap_tokens(token, usdc_address, 3000, amount_in[i], U256::ZERO);
+                }
+            } else {
+                // Swapping USDC -> token
+                // Get USDC contract
+                let usdc_contract = IERC20::new(usdc_address);
+                
+                // Create a new config for balance check
+                let config = Call::new_in(self).gas(evm::gas_left());
+                let usdc_balance = match usdc_contract.balance_of(config, contract::address()) {
+                    Ok(balance) => balance,
+                    Err(_) => continue,
+                };
+                
+                if usdc_balance > U256::ZERO {
+                    // Create a new config for approve
+                    let config = Call::new_in(self).gas(evm::gas_left());
+                    let _ = usdc_contract.approve(config, router_address, amount_in[i]);
+                    
+              
+                    let _ = self._swap_tokens(usdc_address, token, 3000, amount_in[i], U256::ZERO);
+                }
             }
         }
     }
@@ -248,40 +304,45 @@ impl Vault {
         fee: u32,
         recipient: Address, 
         amount_in: U256, 
-        amount_out_minimum: U256
+        amount_out_minimum: U256,
+        sqrt_price_limit_x96: U256
     ) -> Vec<u8> {
-        // Pre-allocate with capacity
-        let mut calldata = Vec::with_capacity(4 + 7 * 32);
+        // Function signature for exactInputSingle (0x04e45aaf)
+        let mut calldata = vec![0x04, 0xe4, 0x5a, 0xaf];
         
-        // Function selector
-        calldata.extend_from_slice(&[0x04, 0xe4, 0x5a, 0xaf]);
+        // For a tuple parameter, we only need the function selector followed by the tuple values
+        // No need for an offset since it's a direct tuple, not a dynamic type
         
-        // Encode addresses manually without using closures
+        // First member: tokenIn (address)
         let mut token_in_bytes = [0u8; 32];
         token_in_bytes[12..].copy_from_slice(token_in.as_slice());
         calldata.extend_from_slice(&token_in_bytes);
         
+        // Second member: tokenOut (address)
         let mut token_out_bytes = [0u8; 32];
         token_out_bytes[12..].copy_from_slice(token_out.as_slice());
         calldata.extend_from_slice(&token_out_bytes);
         
-        // Fee
+        // Third member: fee (uint24) - needs to be padded to 32 bytes
         let mut fee_bytes = [0u8; 32];
         fee_bytes[29] = ((fee >> 16) & 0xFF) as u8;
         fee_bytes[30] = ((fee >> 8) & 0xFF) as u8;
         fee_bytes[31] = (fee & 0xFF) as u8;
         calldata.extend_from_slice(&fee_bytes);
         
+        // Fourth member: recipient (address)
         let mut recipient_bytes = [0u8; 32];
         recipient_bytes[12..].copy_from_slice(recipient.as_slice());
         calldata.extend_from_slice(&recipient_bytes);
         
-        // Amount in and minimum out
+        // Fifth member: amountIn (uint256)
         calldata.extend_from_slice(&amount_in.to_be_bytes::<32>());
+        
+        // Sixth member: amountOutMinimum (uint256)
         calldata.extend_from_slice(&amount_out_minimum.to_be_bytes::<32>());
         
-        // Price limit (always zero in your usage)
-        calldata.extend_from_slice(&U256::ZERO.to_be_bytes::<32>());
+        // Seventh member: sqrtPriceLimitX96 (uint160) - padded to 32 bytes
+        calldata.extend_from_slice(&sqrt_price_limit_x96.to_be_bytes::<32>());
         
         calldata
     }
@@ -325,7 +386,8 @@ impl Vault {
             fee,
             recipient,
             amount_in,
-            amount_out_minimum
+            amount_out_minimum,
+            sqrt_price_limit_x96
         );
         
         // Execute the swap
@@ -354,34 +416,18 @@ impl Vault {
         // Set recipient to this contract
         let recipient = contract::address();
         
-        // Get the router address
-        let router = self.router_address.get();
+        // Set sqrtPriceLimitX96 to 0 (no price limit)
+        let sqrt_price_limit_x96 = U256::ZERO;
         
-        // Create the calldata for the swap - note we don't pass the sqrt_price_limit parameter
-        let calldata = self._create_swap_calldata(
+        // Call the main swap function
+        self._swap_exact_input(
             token_in,
             token_out,
             fee,
             recipient,
             amount_in,
-            amount_out_minimum
-        );
-        
-        // Execute the swap
-        let return_data = call(
-            Call::new_in(self).gas(evm::gas_left() / 2),
-            router,
-            &calldata
-        )?;
-        
-        // Parse the return data (uint256 amountOut)
-        if return_data.len() >= 32 {
-            let mut amount_out_bytes = [0u8; 32];
-            amount_out_bytes.copy_from_slice(&return_data[0..32]);
-            let amount_out = U256::from_be_bytes(amount_out_bytes);
-            Ok(amount_out)
-        } else {
-            Err(return_data)
-        }
+            amount_out_minimum,
+            sqrt_price_limit_x96
+        )
     }
 }   
