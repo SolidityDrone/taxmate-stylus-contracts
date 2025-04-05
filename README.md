@@ -35,8 +35,13 @@ then you can update your ```.env``` variables and run:
 
 make sure you give chmod -x ./deploy.sh permission to execute that file. 
 This will
+
     1. Initialize
+
     2. Approve 
+
     3. Deposit
+
     4. trigger rebalance
+
     5. withdraw position
