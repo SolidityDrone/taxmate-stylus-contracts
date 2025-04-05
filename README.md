@@ -1,4 +1,24 @@
 
+# TaxMate Metric Vault
+
+The Metric Vault is a specialized DeFi investment instrument within the TaxMate ecosystem, designed for users seeking higher-risk, higher-reward opportunities. Unlike TaxMate's standard offerings, this vault leverages the Token Metric API to execute trades based on market signals and technical indicators.
+
+## Deployment
+[Arbitrum Sepolia deployment ](https://sepolia.arbiscan.io/address/0x344f40ca5ccd13642af7eea8abe7566d1ae5ca4f)
+
+## Overview
+
+This vault serves as a single entry/exit point for users to access algorithmic trading strategies. It automatically manages a portfolio of tokens (primarily USDC and WETH) and executes trades based on signals from the Token Metric API. The vault tokenizes user positions, allowing for easy tracking and transfer of ownership.
+
+## Key Features
+
+- **Automated Trading**: Executes trades based on Token Metric API signals
+- **Simplified Access**: Single entry/exit point for complex trading strategies
+- **Risk Management**: Built-in position sizing and portfolio rebalancing
+- **Transparent Operations**: All trades and positions are visible on-chain
+
+
+
 The `lib.rs` file implements a DeFi vault with the following key features:
 
 - **ERC20 Tokenization**: Users receive Metric tokens representing their share of the vault's assets when they deposit.
